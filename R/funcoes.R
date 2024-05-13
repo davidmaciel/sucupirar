@@ -20,16 +20,12 @@ f <- html_form_set(formulario[[1]],
               senha = Sys.getenv("SENHA_SUCUPIRA"))
 # f$target <- "_self"
 f$action <- "https://sso.capes.gov.br/sso/oauth?response_type=code&client_id=sucupira_oauth&redirect_uri=https%3A%2F%2Fsucupira.capes.gov.br%2Fsucupira%2Foauth%2Fcode&state=https://sucupira.capes.gov.br/sucupira/portais/menu_portal.jsf"
-fake_submit_button <- list(name = NULL,
-                           type = "submit",
-                           value = NULL,
-                           checked = NULL,
-                           disabled = NULL,
-                           readonly = NULL,
-                           required = FALSE)
-attr(fake_submit_button, "class") <- "input"
-f[["fields"]][["submit"]] <- fake_submit_button
 
-s2 <- session_submit(s2, f)
+s3 <- session_submit(s2, f)
+s3 |> html_nodes("script") -> scrip
+scrip
+s3 |> read_html() |> write_html("temp.html")
 
-s3|> read_html()  |> write_xml("temp.html")
+s3 <- session_jump_to(s3, "https://sucupira.capes.gov.br/sucupira/portais/menu_portal.jsf")
+
+n11 <- scrip[[11]]
