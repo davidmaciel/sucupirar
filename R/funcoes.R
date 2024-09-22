@@ -1,28 +1,31 @@
-library(RSelenium)
-library(rvest)
-library(janitor)
-library(dplyr)
-library(purrr)
-library(stringr)
+
+
 
 #funcões de conexao-------
-selenium_start <- function(){
-  system("powershell docker run -d -p 4445:4444 -p 5901:5900 selenium/standalone-firefox-debug")
 
+driver_start <- function(port = 4444L){
+  
+  rs_driver_object <- rsDriver(browser = "chrome",
+                               chromever = "129.0.6668.58",
+                               verbose = F,
+                               port=4444L
+  )
+  return(rs_driver_object)
 
 }
 
-selenium_driver <- function(){
-  remDr <- remoteDriver(
-    port = 4445L
-  )
-  remDr$open(silent = F)
-  remDr$setTimeout(type = "implicit", 30000)
+client_start <- function(rs_driver_object){
+  remDr<- rs_driver_object$client
+  remDr$open()
   return(remDr)
 }
 
-selenium_stop <- function(){
-  system("powershell docker stop $(docker ps -q)")
+
+selenium_stop <- function(remDr){
+  remDr$closeWindow()
+  
+  system("powershell taskkill /im java.exe /f")
+ 
 }
 
 #login na sucupira, entra no painel de módulos
@@ -54,6 +57,11 @@ sucupira_login <- function(remDr, usuario, senha){
   return(remDr)
   }
 
+sucupira_logout <- function(RemDr){
+  btn <- remDr$findElement("css", "#form_base_interna\\:botaoDeslogarSSO")
+  btn$clickElement()
+  return(remDr)
+}
 #funções de navegação-----
 #do painel de modulos, entra no portal do coordenador
 enter_coord <- function(remDr){
@@ -65,20 +73,21 @@ return(remDr)
 
 #do portal do cordenador, entra na parte de docentes
 enter_docente <- function(remDr){
-  remDr$setTimeout("implicit", 1e4)
-remDr$navigate("https://sucupira-legado.capes.gov.br/sucupira/coleta_online/manutencaoDocente/listaDocente.jsf")
-return(remDr)
+  docente <- remDr$findElement("css", "#formAbaColeta\\:btnDocentes")
+  docente$setTimeout("implicit", 1e4)
+  docente$clickElement()
+  return(remDr)
 }
 
 enter_discente <- function(remDr){
-  remDr$setTimeout("implicit", 1e4)
-  remDr$navigate("https://sucupira-legado.capes.gov.br/sucupira/coleta_online/discente/listagemManutencaoDiscente.jsf")
+  discente <- remDr$findElement("css", "#formAbaColeta\\:btnDiscente")
+  discente$setTimeout("implicit", 1e4)
+  discente$clickElement()
   return(remDr)
 }
 
 enter_egresso <- function(remDr){
-  remDr$navigate("https://sucupira-legado.capes.gov.br/sucupira/portais/coord_programa/index.jsf")
-  egresso <- remDr$findElement("css", "#formAbaColeta\\:btnEgressos > img:nth-child(1)")
+  egresso <- remDr$findElement("css", "#formAbaColeta\\:btnEgressos")
   egresso$setTimeout("implicit", 1e4)
   egresso$clickElement()
   return(remDr)
@@ -86,8 +95,9 @@ enter_egresso <- function(remDr){
 
 
 enter_pi <- function(remDr){
-  remDr$setTimeout("implicit", 1e4)
-  remDr$navigate("https://sucupira-legado.capes.gov.br/sucupira/coleta_online/producaoIntelectual/listaProducao.jsf")
+  pi <- remDr$findElement("css", "#formAbaColeta\\:btnProducaoIntelectual")
+  pi$setTimeout("implicit", 1e4)
+  pi$clickElement()
   return(remDr)
 }
 
@@ -98,16 +108,13 @@ enter_conclusao <- function(remDr){
 }
 
 enter_projeto <- function(remDr){
-  remDr$setTimeout("implicit", 1e4)
-  remDr$navigate("https://sucupira-legado.capes.gov.br/sucupira/coleta_online/projetoPesquisa/listaProjetoPesquisa.jsf")
+  projeto <- remDr$findElement("css", "#formAbaColeta\\:btnProjetoPesquisa")
+  projeto$setTimeout("implicit", 1e4)
+  projeto$clickElement()
   return(remDr)
 }
 
-enter_conc <- function(remDr){
-  remDr$setTimeout("implicit", 1e4)
-  remDr$navigate("https://sucupira-legado.capes.gov.br/sucupira/coleta_online/manutencaoTrabalhoConclusao/listaTrabalhoConclusao.jsf")
-  return(remDr)
-}
+
 #funções de busca-----
 
 #buscar produção intelectual não precisa marcar o ano
@@ -148,8 +155,8 @@ search_pessoa <- function(remDr, ano){
   year$clearElement()
   year$sendKeysToElement(list(as.character(ano)))#argumento
   consultar <- remDr$findElement(using = "css", "#form\\:consultar")
-  btn_consultar$setTimeout("implicit", 1e4)
-  btn_consultar$clickElement()
+  consultar$setTimeout("implicit", 1e4)
+  consultar$clickElement()
   return(remDr)
 }
 
@@ -158,16 +165,33 @@ search_pessoa <- function(remDr, ano){
 
 pega_tabela_artigos <- function(remDr){
   #achar o máximo de páginas
-  max_page <- remDr$findElement("css", "#form\\:j_idt214\\:j_idt221")
+  
+  max_page <- try(
+    remDr$findElement("css", "#form\\:j_idt217\\:j_idt224"), silent = T
+  )
+  if(inherits(max_page, 'try-error')){
+    max_page <- remDr$findElement("css", "#form\\:j_idt214\\:j_idt221")
+    
+  }
+  
   pages <- max_page$findChildElements("tag name", "option")
   page_numbers <- 1:length(pages)
   
   pegador_artigos <- function(page_number){
-    max_page <- remDr$findElement("css", "#form\\:j_idt214\\:j_idt221")
+    
+    max_page <- try(
+      remDr$findElement("css", "#form\\:j_idt217\\:j_idt224"), silent = T
+    )
+    if(inherits(max_page, 'try-error')){
+      max_page <- remDr$findElement("css", "#form\\:j_idt214\\:j_idt221")
+      
+    }
+    
+    
     pages <- max_page$findChildElements("tag name", "option")
     pages[[page_number]]$setTimeout("implicit", 1e4)
     pages[[page_number]]$clickElement()
-    Sys.sleep(sample(c(5:10), 1))
+    Sys.sleep(sample(c(5,10), 1))
     try(remDr$dismissAlert(), silent = T)
     
     
@@ -194,18 +218,34 @@ pega_tabela_artigos <- function(remDr){
     tabela_artigos %>% 
       mutate(link = links)
   }
+  
+  pegador_artigos <- insistently(pegador_artigos, rate = rate_delay(3, max_times = 10))
   map_dfr(page_numbers, pegador_artigos)
   
 }
 
 pega_tabela_livros <- function(remDr){
   #achar o máximo de páginas
-  max_page <- remDr$findElement("css", "#form\\:j_idt214\\:j_idt221")
+  
+  max_page <- try(
+    remDr$findElement("css", "#form\\:j_idt214\\:j_idt221"), silent = T
+  )
+  if(inherits(max_page, 'try-error')){
+    max_page <- remDr$findElement("css", "#form\\:j_idt217\\:j_idt224")
+    
+  }
+  
   pages <- max_page$findChildElements("tag name", "option")
   page_numbers <- 1:length(pages)
   
   pegador_livros <- function(page_number){
-    max_page <- remDr$findElement("css", "#form\\:j_idt214\\:j_idt221")
+    max_page <- try(
+      remDr$findElement("css", "#form\\:j_idt214\\:j_idt221"), silent = T
+    )
+    if(inherits(max_page, 'try-error')){
+      max_page <- remDr$findElement("css", "#form\\:j_idt217\\:j_idt224")
+      
+    }
     pages <- max_page$findChildElements("tag name", "option")
     pages[[page_number]]$setTimeout("implicit", 1e4)
     pages[[page_number]]$clickElement()
@@ -282,12 +322,25 @@ pega_tabela_anais <- function(remDr){
 
 pega_tabela_conclusao <- function(remDr){
   
-  max_page <- remDr$findElement("css", "#formListagem\\:j_idt189\\:j_idt196")
+  
+  max_page <- try(
+   remDr$findElement("css", "#formListagem\\:j_idt189\\:j_idt196"), silent = T
+  )
+  if(inherits(max_page, 'try-error')){
+    max_page <- remDr$findElement("css", "#formListagem\\:j_idt195\\:j_idt202")
+    
+  }
   pages <- max_page$findChildElements("tag name", "option")
   page_numbers <- 1:length(pages)
   
   pegador_conc <- function(page_number){
-    max_page <- remDr$findElement("css", "#formListagem\\:j_idt189\\:j_idt196")
+    max_page <- try(
+      remDr$findElement("css", "#formListagem\\:j_idt189\\:j_idt196"), silent = T
+    )
+    if(inherits(max_page, 'try-error')){
+      max_page <- remDr$findElement("css", "#formListagem\\:j_idt195\\:j_idt202")
+      
+    }
     pages <- max_page$findChildElements("tag name", "option")
     pages[[page_number]]$setTimeout("implicit", 1e4)
     pages[[page_number]]$clickElement()
@@ -323,12 +376,27 @@ pega_tabela_conclusao <- function(remDr){
 
 pega_tabela_discente <- function(remDr){
   
-  max_page <- remDr$findElement("css", "#form\\:j_idt200\\:cmbPagina")
+  
+  max_page <- try(
+    remDr$findElement("css", "#form\\:j_idt200\\:cmbPagina"), silent = T
+  )
+  if(inherits(max_page, 'try-error')){
+    max_page <- remDr$findElement("css", "#form\\:j_idt194\\:cmbPagina")
+    
+  }
+  
+  
   pages <- max_page$findChildElements("tag name", "option")
   page_numbers <- 1:length(pages)
   
   pegador_disc <- function(page_number){
-    max_page <- remDr$findElement("css", "#form\\:j_idt200\\:cmbPagina")
+    max_page <- try(
+      remDr$findElement("css", "#form\\:j_idt200\\:cmbPagina"), silent = T
+    )
+    if(inherits(max_page, 'try-error')){
+      max_page <- remDr$findElement("css", "#form\\:j_idt194\\:cmbPagina")
+      
+    }
     pages <- max_page$findChildElements("tag name", "option")
     pages[[page_number]]$setTimeout("implicit", 1e4)
     pages[[page_number]]$clickElement()
@@ -363,12 +431,26 @@ pega_tabela_discente <- function(remDr){
 }
 
 pega_tabela_egresso <- function(remDr){
-  max_page <- remDr$findElement("css", "#form\\:j_idt120\\:cmbPagina")
+  max_page <- try(
+    remDr$findElement("css", "#form\\:j_idt120\\:cmbPagina"), silent = T)
+  if(inherits(max_page, 'try-error')){
+    max_page <- remDr$findElement("css", "div.paginacao:nth-child(1) > ul:nth-child(2) > li:nth-child(3)")
+    
+  }
+  
+  
+ 
   pages <- max_page$findChildElements("tag name", "option")
   page_numbers <- 1:length(pages)
   
   pegador_egresso <- function(page_number){
-    max_page <- remDr$findElement("css", "#form\\:j_idt120\\:cmbPagina")
+    max_page <- try(
+      remDr$findElement("css", "#form\\:j_idt120\\:cmbPagina"), silent = T)
+    if(inherits(max_page, 'try-error')){
+      max_page <- remDr$findElement("css", "div.paginacao:nth-child(1) > ul:nth-child(2) > li:nth-child(3)")
+      
+    }
+    
     pages <- max_page$findChildElements("tag name", "option")
     pages[[page_number]]$setTimeout("implicit", 1e4)
     pages[[page_number]]$clickElement()
@@ -422,7 +504,41 @@ pega_tabela_docente <- function(remDr){
 }
 #pega_detalhes------
 
-pega_detalhes_artigo <- function(remDr, link){
+pega_vinc_conc_aux <- function(remDr, link){
+  remDr$navigate(link)
+  html <- remDr$getPageSource()[[1]] %>% read_html()
+  
+  html %>% 
+    html_element("div.form-container:nth-child(8) > div:nth-child(2)") %>% 
+    html_text2()
+}
+
+
+pega_vinc_conc <- function(art21_22){
+  rs_driver_object <- driver_start()
+  remDr <- client_start(rs_driver_object)
+  
+  remDr$setTimeout("implicit", 5e4)
+  sucupira_login(remDr,
+                 usuario = Sys.getenv("LOGIN_SUCUPIRA"), 
+                 senha = Sys.getenv("SENHA_SUCUPIRA"))
+  Sys.sleep(10)
+  enter_coord(remDr)
+  enter_pi(remDr)
+  rate <- rate_delay(1)
+  
+  pega_vinc_conc_aux <- insistently(pega_vinc_conc_aux, rate = rate_delay(3, 10))
+  x <- art21_22 |> 
+    mutate(vinc_conc =
+             map_chr(link, pega_vinc_conc_aux, remDr = remDr))
+  selenium_stop(remDr)
+  x
+}
+
+
+
+
+pega_detalhes_artigo_aux <- function(remDr, link){
   remDr$navigate(link)
   html <- remDr$getPageSource()[[1]] %>% read_html()
   autores <- html %>% 
@@ -476,9 +592,251 @@ pega_detalhes_artigo <- function(remDr, link){
     )
   ) -> lista
   names(lista) <- link
+  Sys.sleep(sample(c(1:8), 1))
   lista
   
 }
+
+pega_detalhes_conc_aux <- function(remDr, link){
+  remDr$navigate(link)
+  html <- remDr$getPageSource()[[1]] %>% read_html()
+  resumo <- html %>% 
+    html_element("div.form-container:nth-child(8) > div:nth-child(2)") %>% 
+    html_text2() 
+  linha <- html %>% 
+    html_element("div.form-container:nth-child(21) > div:nth-child(2)") %>% 
+    html_text2()
+  projeto <- html %>% 
+    html_element("div.form-container:nth-child(22) >div:nth-child(2)") %>% 
+    html_text2()
+  orientador <- html %>% 
+    html_element("#nomeOrientador") %>% 
+    html_text2()
+  Sys.sleep(sample(c(1:8), 1))
+  tibble("resumo" = resumo,
+         "orientador" = orientador,
+         "linha" = linha,
+         "projeto" = projeto,
+         "link" = link)
+}
+
+pega_detalhes_discente_aux <- function(remDr, link){
+  remDr$navigate(link)
+  html <- remDr$getPageSource()[[1]] %>% read_html()
+  projeto <- try(html %>% 
+    html_element("table.listagem:nth-child(34)") %>% 
+    html_table() |> 
+    clean_names() |> 
+    mutate(link = link), silent = T)
+  if(inherits(projeto, "try-error")){
+    projeto2 <- html %>% 
+                     html_element("div.form-container:nth-child(34) > div:nth-child(1)") %>% 
+                     html_text2() 
+    projeto <- tibble("projeto_de_pesquisa" = projeto2,
+                      "link" = link)
+  }
+  
+  Sys.sleep(sample(c(seq(1,2,by = 0.1)), 1))
+  projeto
+}
+
+pega_detalhes_discente <- function(links){
+  rate <- rate_delay(pause = 1, max_times = 10)
+  rs_driver_object <- driver_start()
+  remDr <- client_start(rs_driver_object)
+
+  remDr$setTimeout("implicit", 5e4)
+  sucupira_login(remDr,
+                 usuario = Sys.getenv("LOGIN_SUCUPIRA"), 
+                 senha = Sys.getenv("SENHA_SUCUPIRA"))
+  Sys.sleep(10)
+  enter_coord(remDr)
+  enter_discente(remDr)
+  rate <- rate_delay(1)
+  
+  pega_detalhes_discente_aux <- insistently(pega_detalhes_discente_aux, rate)
+  x <- map_dfr(links, pega_detalhes_discente_aux, remDr = remDr)
+  selenium_stop(remDr)
+  x
+}
+
+
+pega_detalhes_artigo <- function(links){
+  
+  rs_driver_object <- driver_start()
+  remDr <- client_start(rs_driver_object)
+  
+  remDr$setTimeout("implicit", 5e4)
+  sucupira_login(remDr,
+                 usuario = Sys.getenv("LOGIN_SUCUPIRA"), 
+                 senha = Sys.getenv("SENHA_SUCUPIRA"))
+  Sys.sleep(10)
+  enter_coord(remDr)
+  enter_pi(remDr)
+  rate <- rate_delay(1)
+  
+  pega_detalhes_artigo_aux <- insistently(pega_detalhes_artigo_aux, rate)
+  x <- map_dfr(links, pega_detalhes_artigo_aux, remDr = remDr)
+  selenium_stop(remDr)
+  x
+}
+
+pega_detalhes_discente_ins <- insistently(pega_detalhes_discente, 
+                                          rate = rate_delay(1))
+
+
+#funnções para pegar para o targets------
+pega_conc <- function(){
+  
+  rs_driver_object <- driver_start()
+  remDr <- client_start(rs_driver_object)
+  remDr$setTimeout("implicit", 5e4)
+  sucupira_login(remDr,
+                 usuario = Sys.getenv("LOGIN_SUCUPIRA"), 
+                 senha = Sys.getenv("SENHA_SUCUPIRA"))
+  Sys.sleep(10)
+  enter_coord(remDr)
+  enter_conclusao(remDr)
+  conc<-pega_tabela_conclusao(remDr)
+  selenium_stop(remDr)
+
+  conc
+}
+pega_conc_ins <- insistently(pega_conc)
+
+pega_discente <- function(ano){
+  rs_driver_object <- driver_start()
+  remDr <- client_start(rs_driver_object)
+  remDr$setTimeout("implicit", 5e4)
+  sucupira_login(remDr,
+                 usuario = Sys.getenv("LOGIN_SUCUPIRA"), 
+                 senha = Sys.getenv("SENHA_SUCUPIRA"))
+  Sys.sleep(10)
+  enter_coord(remDr)
+  enter_discente(remDr)
+  search_pessoa(remDr, ano = ano )
+  disc<-pega_tabela_discente(remDr)
+  selenium_stop(remDr)
+  print(ano)
+  disc %>% 
+    mutate(ano = ano)
+}
+pega_discente_ins <- insistently(pega_discente)
+
+pega_docente <- function(ano){
+  rs_driver_object <- driver_start()
+  remDr <- client_start(rs_driver_object)
+  remDr$setTimeout("implicit", 5e4)
+  sucupira_login(remDr,
+                 usuario = Sys.getenv("LOGIN_SUCUPIRA"), 
+                 senha = Sys.getenv("SENHA_SUCUPIRA"))
+  Sys.sleep(10)
+  enter_coord(remDr)
+  
+  enter_docente(remDr)
+  search_pessoa(remDr, ano = ano )
+  doc <- pega_tabela_docente(remDr)
+  sucupira_logout(remDr)
+  selenium_stop(remDr)
+  doc %>% 
+    mutate(ano = ano)
+}
+pega_docente_ins <- insistently(pega_docente)
+
+pega_egresso <- function(){
+  rs_driver_object <- driver_start()
+  remDr <- client_start(rs_driver_object)
+  remDr$setTimeout("implicit", 5e4)
+  sucupira_login(remDr,
+                 usuario = Sys.getenv("LOGIN_SUCUPIRA"), 
+                 senha = Sys.getenv("SENHA_SUCUPIRA"))
+  Sys.sleep(10)
+  enter_coord(remDr)
+  enter_egresso(remDr)
+  egre <- pega_tabela_egresso(remDr)
+  selenium_stop(remDr)
+  egre
+}
+pega_egresso_ins <- insistently(pega_egresso)
+
+pega_artigo <- function(){
+  rs_driver_object <- driver_start()
+  remDr <- client_start(rs_driver_object)
+  remDr$setTimeout("implicit", 5e4)
+  sucupira_login(remDr,
+                 usuario = Sys.getenv("LOGIN_SUCUPIRA"), 
+                 senha = Sys.getenv("SENHA_SUCUPIRA"))
+  Sys.sleep(5)
+  enter_coord(remDr)
+  enter_pi(remDr)
+  search_pi(remDr,tipo = "BIBLIOGRÁFICA", subtipo = "ARTIGO EM PERIÓDICO")
+  art <- pega_tabela_artigos(remDr)
+  selenium_stop(remDr)
+  art
+}
+pega_artigo_ins <- insistently(pega_artigo)
+
+pega_anais <- function(){
+  rrs_driver_object <- driver_start()
+  remDr <- client_start(rs_driver_object)
+  remDr$setTimeout("implicit", 5e4)
+  sucupira_login(remDr,
+                 usuario = Sys.getenv("LOGIN_SUCUPIRA"), 
+                 senha = Sys.getenv("SENHA_SUCUPIRA"))
+  Sys.sleep(10)
+  enter_coord(remDr)
+  enter_pi(remDr)
+  search_pi(remDr,tipo = "BIBLIOGRÁFICA", subtipo = "TRABALHO EM ANAIS")
+  anais <- pega_tabela_anais(remDr)
+  selenium_stop(remDr)
+  anais
+}
+pega_anais_ins <- insistently(pega_anais)
+
+pega_livros <- function(){
+  rs_driver_object <- driver_start()
+  remDr <- client_start(rs_driver_object)
+  remDr$setTimeout("implicit", 5e4)
+  sucupira_login(remDr,
+                 usuario = Sys.getenv("LOGIN_SUCUPIRA"), 
+                 senha = Sys.getenv("SENHA_SUCUPIRA"))
+  Sys.sleep(10)
+  enter_coord(remDr)
+  enter_pi(remDr)
+  search_pi(remDr,tipo = "BIBLIOGRÁFICA", subtipo = "LIVRO")
+  livros <- pega_tabela_livros(remDr)
+  selenium_stop(remDr)
+  livros
+}
+pega_livros_ins <- insistently(pega_livros)
+
+#limpezas----
+
+clean_discente <- function(discente_ano){
+
+discente_ano |> 
+     
+    filter(nivel %in% c("Mestrado", "Doutorado") & 
+             between(ano, 2021, 2022)) |> 
+    distinct() |> 
+    select(discente, nivel, link, ano) |> 
+    mutate(id_discente =  str_remove(link, "&ano=\\d{4}$") |> 
+             str_extract("idDiscente=(\\d{1,}$)", group = 1))
+    
+}
+
+clean_dis_detalhes <- function(dis_detalhes){
+  dis_detalhes |> 
+    mutate(
+      id_discente = str_remove(link, "&ano=\\d{4}$") |> 
+        str_extract("idDiscente=(\\d{1,}$)", group = 1)) |> 
+    select(
+      id_discente,
+      "projeto" = projeto_de_pesquisa, 
+           "linha" = linha_de_pesquisa,
+           "natureza" = natureza_do_projeto)
+}
+
 #restos-------
 get_docentes <- function(remDr, ano){
 year <- remDr$findElement(using = "css", 
